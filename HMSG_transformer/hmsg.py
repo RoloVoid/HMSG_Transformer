@@ -27,7 +27,6 @@ seq_len = config.seq_len
 # It is an encoder_only network.
 # Instead of decoder layer, it uses a temporal attention layer to get the final product
 
-
 '''
 raw_input = [seq_len, batch_size, d_model]
 '''
@@ -77,29 +76,19 @@ class Encoder(nn.Module):
         return enc_out
 
 '''
-TemporalAttnLayer: [batch_size, seq_len, d_model] -> [batch_size, d_model,seq_len] -> [batch_size,d_model]
+TemporalAttnLayer: [batch_size, seq_len, d_model] -> [batch, d_model]
 '''
-class TemporalAttnLayer(nn.Module):
-    
-    __constants__ = ["P", "T"]
-    
-    def __init__(self, M, P, T, stateful=False):
+
+class TemporalAttnLayer(nn.Module):    
+    def __init__(self,P):
         """
-        :param: M: int
-            number of encoder LSTM units
         :param: P:
-            number of deocder LSTM units
-        :param: T:
-            number of timesteps
-        :param: stateful:
-            decides whether to initialize cell state of new time window with values of the last cell state
-            of previous time window or to initialize it with zeros
+            number of decoder LSTM units
         """
-        super(self.__class__, self).__init__()
-        self.M = M
+        super(TemporalAttnLayer, self).__init__()
+        self.M = seq_len
         self.P = P
-        self.T = T
-        self.stateful = stateful
+        self.T = seq_len
         
         self.decoder_lstm = nn.LSTMCell(input_size=1, hidden_size=self.P)
         
@@ -107,49 +96,42 @@ class TemporalAttnLayer(nn.Module):
         self.W_d = nn.Linear(2*self.P, self.M)
         self.U_d = nn.Linear(self.M, self.M, bias=False)
         self.v_d = nn.Linear(self.M, 1, bias = False)
-        
-        #equation 15 matrix
-        self.w_tilda = nn.Linear(self.M + 1, 1)
-        
-        #equation 22 matrices
-        self.W_y = nn.Linear(self.P + self.M, self.P)
-        self.v_y = nn.Linear(self.P, 1)
     
-    def forward(self, encoded_inputs, y):
+    def forward(self, encoded_inputs,y):
+        for m in range (batch_size):
+            # initializing hidden states
+            d_tm1 = torch.zeros((encoded_inputs.size(0), self.P))
+            s_prime_tm1 = torch.zeros((encoded_inputs.size(0), self.P))
+            c_t = torch.zeros((encoded_inputs.size(0), self.P))
+            for t in range(self.T):
+                #concatenate hidden states
+                d_s_prime_concat = torch.cat((d_tm1, s_prime_tm1), dim=1)
+                #print(d_s_prime_concat)
+                #temporal attention weights (equation 12)
+                x1 = self.W_d(d_s_prime_concat).unsqueeze_(1).repeat(1, encoded_inputs[m].shape[1], 1)
+                y1 = self.U_d(encoded_inputs[m])
+                z1 = torch.tanh(x1 + y1)
+                l_i_t = self.v_d(z1)
+                
+                #normalized attention weights (equation 13)
+                beta_i_t = F.softmax(l_i_t, dim=1)
+                
+                #create context vector (equation_14)
+                c_t = torch.sum(beta_i_t * encoded_inputs, dim=1)
+                
+                #concatenate c_t and y_t
+                y_c_concat = torch.cat((c_t, y[:, t, :]), dim=1)
+                #create y_tilda
+                y_tilda_t = self.w_tilda(y_c_concat)
+                
+                #calculate next hidden states (equation 16)
+                d_tm1, s_prime_tm1 = self.decoder_lstm(y_tilda_t, (d_tm1, s_prime_tm1))
         
-        #initializing hidden states
-        d_tm1 = torch.zeros((encoded_inputs.size(0), self.P)).cuda()
-        s_prime_tm1 = torch.zeros((encoded_inputs.size(0), self.P)).cuda()
-        c_t = torch.zeros((encoded_inputs.size(0), self.P)).cuda()
-        for t in range(self.T):
-            #concatenate hidden states
-            d_s_prime_concat = torch.cat((d_tm1, s_prime_tm1), dim=1)
-            #print(d_s_prime_concat)
-            #temporal attention weights (equation 12)
-            x1 = self.W_d(d_s_prime_concat).unsqueeze_(1).repeat(1, encoded_inputs.shape[1], 1)
-            y1 = self.U_d(encoded_inputs)
-            z1 = torch.tanh(x1 + y1)
-            l_i_t = self.v_d(z1)
-            
-            #normalized attention weights (equation 13)
-            beta_i_t = F.softmax(l_i_t, dim=1)
-            
-            #create context vector (equation_14)
-            c_t = torch.sum(beta_i_t * encoded_inputs, dim=1)
-            
-            #concatenate c_t and y_t
-            y_c_concat = torch.cat((c_t, y[:, t, :]), dim=1)
-            #create y_tilda
-            y_tilda_t = self.w_tilda(y_c_concat)
-            
-            #calculate next hidden states (equation 16)
-            d_tm1, s_prime_tm1 = self.decoder_lstm(y_tilda_t, (d_tm1, s_prime_tm1))
-        
-        #concatenate context vector at step T and hidden state at step T
-        d_c_concat = torch.cat((d_tm1, c_t), dim=1)
+            #concatenate context vector at step T and hidden state at step T
+            d_c_concat = torch.cat((d_tm1, c_t), dim=1)
 
-        #calculate output
-        y_Tp1 = self.v_y(self.W_y(d_c_concat))
+            #calculate output
+            y_Tp1 = self.v_y(self.W_y(d_c_concat))
         return y_Tp1
 
 # class TemporalAttnLayer(nn.Module):
