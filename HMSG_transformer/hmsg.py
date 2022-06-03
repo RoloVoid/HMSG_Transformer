@@ -76,7 +76,7 @@ class Encoder(nn.Module):
         return enc_out
 
 '''
-TemporalAttnLayer: [batch_size, seq_len, d_model] -> [seq_len, batch_size, d_model] -> [batch_size, d_model]
+TemporalAttnLayer: [batch_size, seq_len, d_model] -> [batch_size, d_model]
 '''
 class TemporalAttnLayer(nn.Module):    
     def __init__(self,H):
@@ -88,7 +88,7 @@ class TemporalAttnLayer(nn.Module):
         self.H = H
         self.T = seq_len
 
-        self.decoder_lstm = nn.LSTMCell(input_size=d_model, hidden_size=d_model*self.H)
+        self.decoder_lstm = nn.LSTMCell(input_size=1, hidden_size=self.H)
 
         self.w_tilda = nn.Linear(self.M + 1, 1)
         
@@ -98,33 +98,31 @@ class TemporalAttnLayer(nn.Module):
         self.v_d = nn.Linear(self.M, 1, bias = False)
     
     def forward(self, enc_inputs,y):
-        # change dims: [batch_size, seq_len, d_model] -> [seq_len, batch_size, d_model]
-        enc_inputs = enc_inputs.transpose(0,1)
         # initializing hidden states
         d_tm1 = torch.zeros((enc_inputs.size(0), self.H))
         s_prime_tm1 = torch.zeros((enc_inputs.size(0), self.H))
         c_t = torch.zeros((enc_inputs.size(0), self.H))
         beta_i_t = torch.ones
         for t in range(self.T):
-            # concatenate hidden states -> [seq_len, 2H]
+            # concatenate hidden states -> [batch_size, 2H]
             d_s_prime_concat = torch.cat((d_tm1, s_prime_tm1), dim=1)
             # temporal attention weights (equation 12) 
-            # [seq_len, 2H]-> [seq_len, d_model],[seq_len, 1, d_model] -> [seq_len, batch_size, d_model]
+            # [batch_size, 2H] -> [batch_size, d_model] -> [batch_size, 1, d_model] -> [batch_size, seq_len, d_model]
             x1 = self.W_d(d_s_prime_concat).unsqueeze_(1).repeat(1, enc_inputs.shape[1], 1)
-            # [seq_len, batch_size, d_model] -> [seq_len, batch_size, d_model]
+            # [batch_size, seq_len, d_model] -> [batch_size, seq_len, d_model]
             y1 = self.U_d(enc_inputs)
-            # [seq_len, batch_size, d_model]
+            # [batch_size, seq_len, d_model]
             z1 = torch.tanh(x1 + y1)
-            # [seq_len, batch_size, 1]
+            # [batch_size, seq_len, 1]
             l_i_t = self.v_d(z1)
             
             beta_i_t = F.softmax(l_i_t, dim=1) 
-            # [seq_len, batch_size, 1] * [seq_len, batch_size, d_model] -> [seq_len, batch_size, d_model] -> [seq_len, d_model]
+            # [batch_size, seq_len, 1] * [batch_size, seq_len, d_model] -> [batch_size, seq_len, d_model] -> [batch_size, d_model]
             c_t = torch.sum(beta_i_t * enc_inputs, dim=1) # create context vector
             
-            # [seq_len, d_model+1]
+            # [batch_size, d_model+1]
             y_c_concat = torch.cat((c_t, y[:, t, :]), dim=1)  #concatenate c_t and y_t
-            # [seq_len, d_]
+            # [batch_size, 1]
             y_tilda_t = self.w_tilda(y_c_concat)         #create y_tilda
             
             #calculate next hidden states (equation 16)
