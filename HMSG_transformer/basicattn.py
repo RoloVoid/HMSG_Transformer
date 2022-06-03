@@ -8,14 +8,14 @@ import torch
 import numpy as np
 from torch import nn
 
-from . import config
+import config
 
 d_model = config.d_model
 device = config.device
 d_ff = config.d_ff
 n_heads = config.n_heads
 d_k,d_v = config.d_k,config.d_v
-sigma_hs = config.sigma_hs
+sigma_hs = [5,10,20,40]
 
 # for posfeedforward part of encoder
 class PoswiseFeedForwardNet(nn.Module):

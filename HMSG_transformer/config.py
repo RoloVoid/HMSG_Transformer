@@ -11,4 +11,5 @@ d_k = 9
 d_v = 9
 epochs = 100
 batch_size = 5
-simga_hs = [5,10,20,40]
+seq_len = 10
+# simga_hs = [5,10,20,40]
