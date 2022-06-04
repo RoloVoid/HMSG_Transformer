@@ -86,9 +86,9 @@ class TemporalAttnLayer(nn.Module):
         super(TemporalAttnLayer, self).__init__()
         self.M = d_model
         self.H = H
-        self.T = seq_len
+        self.T = d_model
 
-        self.decoder_lstm = nn.LSTMCell(input_size=1, hidden_size=self.H)
+        self.encoder_lstm = nn.LSTMCell(input_size=1, hidden_size=self.H)
 
         self.w_tilda = nn.Linear(self.M + 1, 1)
         
@@ -107,7 +107,6 @@ class TemporalAttnLayer(nn.Module):
         for t in range(self.T):
             # concatenate hidden states -> [batch_size, 2H]
             d_s_prime_concat = torch.cat((d_tm1, s_prime_tm1), dim=1)
-            # temporal attention weights (equation 12) 
             # [batch_size, 2H] -> [batch_size, d_model] -> [batch_size, 1, d_model] -> [batch_size, seq_len, d_model]
             x1 = self.W_d(d_s_prime_concat).unsqueeze_(1).repeat(1, enc_inputs.shape[1], 1)
             # [batch_size, seq_len, d_model] -> [batch_size, seq_len, d_model]
@@ -119,7 +118,7 @@ class TemporalAttnLayer(nn.Module):
             
             beta_i_t = F.softmax(l_i_t, dim=1) 
             # [batch_size, seq_len, 1] * [batch_size, seq_len, d_model] -> [batch_size, seq_len, d_model] -> [batch_size, d_model]
-            c_t = torch.sum(beta_i_t * enc_inputs, dim=1) # create context vector
+            c_t = torch.sum(beta_i_t * enc_inputs, dim=1)
             tgt = tgt + c_t # get target series
             
             # [batch_size, d_model+1]
@@ -127,11 +126,12 @@ class TemporalAttnLayer(nn.Module):
             # [batch_size, 1]
             y_tilda_t = self.w_tilda(y_c_concat)
             
-            #next hidden states
-            d_tm1, s_prime_tm1 = self.decoder_lstm(y_tilda_t, (d_tm1, s_prime_tm1))
+            # next hidden states
+            d_tm1, s_prime_tm1 = self.encoder_lstm(y_tilda_t, (d_tm1, s_prime_tm1))
         
         return tgt
 
+# [batch_size,d_model] -> [batch_size,1] -> [batch_size]
 class AggregationLayer(nn.Module):
     def __init__(self):
         super(AggregationLayer,self).__init__()
@@ -141,8 +141,9 @@ class AggregationLayer(nn.Module):
         )
     
     def forward(self,tgt):
-        return self.net(tgt)
+        return self.net(tgt).squeeze(1)
 
+# [batch_size, seq_len, d_model] -> [batch_size]
 class TemporalAggregation(nn.Module):
     def __init__(self,H):
         super(TemporalAggregation,self).__init__()
@@ -153,7 +154,7 @@ class TemporalAggregation(nn.Module):
         return self.ALayer(self.TALayer(self.H)(enc_out))
 
     
-
+# [seq_len, batch_size, d_model] -> [batch_size]
 class HMSG_Transformer(nn.Module):
     def __init__(self,H):
         super(HMSG_Transformer,self).__init__()

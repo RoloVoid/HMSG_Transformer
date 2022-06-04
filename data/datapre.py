@@ -23,6 +23,7 @@ df = jq.get_price(stockcodes,
                 fields=data['stockts']['fields'],
                 panel=False)
 
+# save data to local directory in order to use again
 filename = data['stockts']['index']+'.'+data['stockts']['enddate']+'.'+data['stockts']['fre']+'.csv'
 df.to_csv(filename)
 # print(df.at[1,'code'])

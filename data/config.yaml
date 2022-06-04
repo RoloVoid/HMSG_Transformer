@@ -2,8 +2,8 @@
 
 # DataPlatform Auth: JoinQuart: jqdatasdk 
 metadata:
-  username: 'yourusername' # normally mainland China telephone number, so change it into string
-  password: yourpassword
+  username: '15838896053' # normally mainland China telephone number, so change it into string
+  password: lighthouse
 
 stockts: 
   # Target Index: e.g. 000300.XSHG, which refers to 沪深300
