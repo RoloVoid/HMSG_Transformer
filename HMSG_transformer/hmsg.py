@@ -102,6 +102,7 @@ class TemporalAttnLayer(nn.Module):
         d_tm1 = torch.zeros((enc_inputs.size(0), self.H))
         s_prime_tm1 = torch.zeros((enc_inputs.size(0), self.H))
         c_t = torch.zeros((enc_inputs.size(0), self.H))
+        tgt = torch.zeros(batch_size, d_model)
         beta_i_t = torch.ones
         for t in range(self.T):
             # concatenate hidden states -> [batch_size, 2H]
@@ -119,35 +120,45 @@ class TemporalAttnLayer(nn.Module):
             beta_i_t = F.softmax(l_i_t, dim=1) 
             # [batch_size, seq_len, 1] * [batch_size, seq_len, d_model] -> [batch_size, seq_len, d_model] -> [batch_size, d_model]
             c_t = torch.sum(beta_i_t * enc_inputs, dim=1) # create context vector
+            tgt = tgt + c_t # get target series
             
             # [batch_size, d_model+1]
-            y_c_concat = torch.cat((c_t, y[:, t, :]), dim=1)  #concatenate c_t and y_t
+            y_c_concat = torch.cat((c_t, y[:, t, :]), dim=1)
             # [batch_size, 1]
-            y_tilda_t = self.w_tilda(y_c_concat)         #create y_tilda
+            y_tilda_t = self.w_tilda(y_c_concat)
             
-            #calculate next hidden states (equation 16)
+            #next hidden states
             d_tm1, s_prime_tm1 = self.decoder_lstm(y_tilda_t, (d_tm1, s_prime_tm1))
         
-        #concatenate context vector at step T and hidden state at step T
-        d_c_concat = torch.cat((d_tm1, c_t), dim=1)
-
-        #calculate output
-        y_Tp1 = self.v_y(self.W_y(d_c_concat))
-        return y_Tp1
+        return tgt
 
 class AggregationLayer(nn.Module):
     def __init__(self):
         super(AggregationLayer,self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(d_model,1,bias=False),
+            nn.Sigmoid()
+        )
+    
+    def forward(self,tgt):
+        return self.net(tgt)
 
+class TemporalAggregation(nn.Module):
+    def __init__(self,H):
+        super(TemporalAggregation,self).__init__()
+        self.H = H
+        self.TALayer = TemporalAttnLayer
+        self.ALayer = AggregationLayer
+    def forward(self,enc_out):
+        return self.ALayer(self.TALayer(self.H)(enc_out))
+
+    
 
 class HMSG_Transformer(nn.Module):
-    def __init__(self,
-        encoder,
-        temporal_aggr_layer,
-        ):
+    def __init__(self,H):
         super(HMSG_Transformer,self).__init__()
-        self.encoder = encoder
-        self.temporal_aggr_layer = temporal_aggr_layer
+        self.encoder = Encoder
+        self.temporalaggr = TemporalAggregation
 
-    def forward(self,x):
-        print("f")
+    def forward(self,raw_input):
+        return self.temporalaggr(self.H)(self(raw_input))

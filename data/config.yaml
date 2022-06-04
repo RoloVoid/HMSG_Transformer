@@ -1,0 +1,19 @@
+# The basic settings to get Chinese A-share stock data
+
+# DataPlatform Auth: JoinQuart: jqdatasdk 
+metadata:
+  username: 'yourusername' # normally mainland China telephone number, so change it into string
+  password: yourpassword
+
+stockts: 
+  # Target Index: e.g. 000300.XSHG, which refers to 沪深300
+  index: 000300.XSHG
+  fre: 15m # data frequency
+  fields:  # data fields, in other words feature series
+    - open
+    - close
+    - high
+    - low
+    - volume
+  enddate: 2022-06-01 14:00:00 # e.g. engine pulls last 40 records from enddate/endtime
+  count: 5
