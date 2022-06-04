@@ -12,3 +12,7 @@ $$
 \alpha_l^k=\frac {exp(e_t^k)}{\Sigma_{i=1}^nexp(e_l^i)}
 $$
 
+### 标签映射
+$$
+
+$$
