@@ -6,7 +6,7 @@ metadata:
   password: yourpassword
 
 stockts: 
-  # Target Index: e.g. 000300.XSHG, which refers to 沪深300, you can also use CSI-500(中证500) with 000905.XSHG according to paper
+  # Target Index: e.g. 000300.XSHG, which refers to 沪深300, you can also use CSI-500(中证500) with 000905.XSHG according to the paper
   index: 000300.XSHG
   fre: daily # data frequency
   fields:  # data fields, in other words feature series

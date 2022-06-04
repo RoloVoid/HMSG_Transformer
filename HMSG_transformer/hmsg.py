@@ -9,19 +9,16 @@ https://doi.org/10.24963/ijcai.2020/640.
 '''
 
 import torch
-import numpy as np
 import torch.nn as nn
-import torch.optim as optim
-import torch.utils.data as Data
 import torch.functional as F
 import basicattn, config
 
-d_model = config.d_model
+# d_model = config.d_model
 device = config.device
-n_heads = config.n_heads
-n_layers = config.n_layers
-batch_size = config.batch_size
-seq_len = config.seq_len
+# n_heads = config.n_heads
+# n_layers = config.n_layers
+# batch_size = config.batch_size
+# seq_len = config.seq_len
 
 # Hmsg_Transformer Model.
 # It is an encoder_only network.
@@ -31,10 +28,10 @@ seq_len = config.seq_len
 raw_input = [seq_len, batch_size, d_model]
 '''
 class PreLayer(nn.Module):
-    def __init__(self):
+    def __init__(self,d_model):
         super(PreLayer,self).__init__()
         self.prehandler = nn.Sequential(
-            basicattn.PositionalEncoding(),
+            basicattn.PositionalEncoding(d_model),
             nn.Linear(d_model,d_model,bias=False),
             nn.Tanh()
         )
@@ -47,10 +44,17 @@ enc_inputs: [batch_size, seq_len, d_model]
 enc_self_attn_mask: [batch_size, seq_len, seq_len]
 """
 class EncoderLayer(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        d_q,
+        d_k,
+        d_v,
+        n_heads,
+        d_model,
+        d_ff):
         super(EncoderLayer, self).__init__()
-        self.enc_self_attn = basicattn.MultiHeadAttention()
-        self.pos_ffn = basicattn.PoswiseFeedForwardNet()
+        self.enc_self_attn = basicattn.MultiHeadAttention(d_q,d_k,d_v,n_heads,d_model)
+        self.pos_ffn = basicattn.PoswiseFeedForwardNet(d_ff,d_model)
 
     def forward(self, enc_inputs, enc_self_attn_mask):
         enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) 
@@ -63,10 +67,19 @@ class EncoderLayer(nn.Module):
 Encoder: [seq_len, batch_size, d_model] -> [batch_size, seq_len, d_model] 
 '''
 class Encoder(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        d_model,
+        d_q,
+        d_k,
+        d_v,
+        n_heads,
+        d_ff,
+        n_layers
+        ):
         super(Encoder,self).__init__()
         self.prelayer = PreLayer()
-        self.encoder_layers = nn.ModuleList([EncoderLayer() for _ in range (n_layers)])
+        self.encoder_layers = nn.ModuleList([EncoderLayer(d_q,d_k,d_v,n_heads,d_model,d_ff) for _ in range (n_layers)])
 
     def forward(self,raw_input):
         enc_out = self.prelayer(raw_input).transpose(0,1)
@@ -79,14 +92,21 @@ class Encoder(nn.Module):
 TemporalAttnLayer: [batch_size, seq_len, d_model] -> [batch_size, d_model]
 '''
 class TemporalAttnLayer(nn.Module):    
-    def __init__(self,H):
+    def __init__(
+        self,
+        H,
+        d_model,
+        batch_size,
+        seq_len
+        ):
         """
         H: The length of hidden size of lstm
         """
         super(TemporalAttnLayer, self).__init__()
         self.M = d_model
         self.H = H
-        self.T = d_model
+        self.T = seq_len
+        self.batch_size = batch_size
 
         self.encoder_lstm = nn.LSTMCell(input_size=1, hidden_size=self.H)
 
@@ -102,7 +122,7 @@ class TemporalAttnLayer(nn.Module):
         d_tm1 = torch.zeros((enc_inputs.size(0), self.H))
         s_prime_tm1 = torch.zeros((enc_inputs.size(0), self.H))
         c_t = torch.zeros((enc_inputs.size(0), self.H))
-        tgt = torch.zeros(batch_size, d_model)
+        tgt = torch.zeros(self.batch_size, self.M)
         beta_i_t = torch.ones
         for t in range(self.T):
             # concatenate hidden states -> [batch_size, 2H]
@@ -133,7 +153,10 @@ class TemporalAttnLayer(nn.Module):
 
 # [batch_size,d_model] -> [batch_size,1] -> [batch_size]
 class AggregationLayer(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        d_model
+        ):
         super(AggregationLayer,self).__init__()
         self.net = nn.Sequential(
             nn.Linear(d_model,1,bias=False),
@@ -145,21 +168,40 @@ class AggregationLayer(nn.Module):
 
 # [batch_size, seq_len, d_model] -> [batch_size]
 class TemporalAggregation(nn.Module):
-    def __init__(self,H):
+    def __init__(
+        self,
+        H,
+        d_model,
+        batch_size,
+        seq_len
+        ):
         super(TemporalAggregation,self).__init__()
         self.H = H
-        self.TALayer = TemporalAttnLayer
-        self.ALayer = AggregationLayer
+        self.TALayer = TemporalAttnLayer(H,d_model,batch_size,seq_len)
+        self.ALayer = AggregationLayer(d_model)
     def forward(self,enc_out):
         return self.ALayer(self.TALayer(self.H)(enc_out))
 
     
 # [seq_len, batch_size, d_model] -> [batch_size]
 class HMSG_Transformer(nn.Module):
-    def __init__(self,H):
+    def __init__(
+        self,
+        H,
+        d_q,
+        d_k,
+        d_v,
+        n_heads,
+        n_layers,
+        d_ff,
+        batch_size,
+        device,
+        d_model,
+        seq_len
+        ):
         super(HMSG_Transformer,self).__init__()
-        self.encoder = Encoder
-        self.temporalaggr = TemporalAggregation
+        self.encoder = Encoder(self,d_model,d_q,d_k,d_v,n_heads,d_ff,n_layers)
+        self.temporalaggr = TemporalAggregation(H,d_model,batch_size,seq_len)
 
     def forward(self,raw_input):
-        return self.temporalaggr(self.H)(self(raw_input))
+        return self.temporalaggr(self.encoder(raw_input))

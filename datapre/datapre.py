@@ -1,4 +1,4 @@
-# This script is for Chinese A shares data
+# This script is for Chinese A shares data -- dzy 2022.6.2
 
 import jqdatasdk as jq
 import pandas as pd
@@ -19,6 +19,7 @@ data = yaml.load(config,Loader=yaml.FullLoader)
 # get target filename
 datasetname = data['stockts']['index']+'.'+data['stockts']['fre']+'.csv'
 labelname = data['stockts']['index']+'.'+data['stockts']['fre']+'.label.csv'
+tagname = data['stockts']['index']+'.csv'
 
 # for label use
 def apply_label(tg,beta_rise,beta_fall):    
@@ -42,6 +43,10 @@ if not os.path.exists('../dataset/'+datasetname):
 
     # save data to local directory
     dataset.to_csv('../dataset/'+datasetname)
+    # group by stockcodes
+    # grouped = dataset.groupby('code')
+    # print(type(grouped.get_group(stockcodes[0])))
+
 
 # generate labels    
 # for example, if we want to predict the close price trend of 6.4, 
@@ -60,11 +65,8 @@ if not os.path.exists('../dataset/'+labelname):
     lag = lag.pivot(index='time',columns='code',values=data['stockts']['tgt'])
     labels = lag.pct_change()
     labels = labels.loc[str(data['stockts']['tgdate'])].\
-            apply(apply_label,args=(data['Threshold']['beta_rise'],data['Threshold']['beta_fall']))
+            apply(apply_label,args=(data['Threshold']['beta_rise'],data['Threshold']['beta_fall']))[0]
     
     # save data to local directory
     labels.to_csv('../dataset/'+labelname)
 
-# # group by stockcodes
-# grouped = df.groupby('code')
-# # print(grouped.get_group('600763.XSHG'))

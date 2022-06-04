@@ -10,17 +10,24 @@ from torch import nn
 
 import config
 
-d_model = config.d_model
-device = config.device
-d_ff = config.d_ff
-n_heads = config.n_heads
-d_k,d_v = config.d_k,config.d_v
-sigma_hs = [5,10,20,40]
+# d_model = config.d_model
+# device = config.device
+# d_ff = config.d_ff
+# n_heads = config.n_heads
+# d_k,d_v = config.d_k,config.d_v
+# sigma_hs = [5,10,20,40]
 
 # for posfeedforward part of encoder
 class PoswiseFeedForwardNet(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        d_ff,
+        d_model,
+        device="cpu"
+        ):
         super(PoswiseFeedForwardNet, self).__init__()
+        self.d_model = d_model
+        self.device = device
         self.fc = nn.Sequential(
             # seq_len*d_ff
             nn.Linear(d_model, d_ff, bias=False),
@@ -35,7 +42,7 @@ class PoswiseFeedForwardNet(nn.Module):
         """
         residual = inputs
         output = self.fc(inputs)
-        return nn.LayerNorm(d_model).to(device)(output + residual)  # [batch_size, seq_len, d_model]
+        return nn.LayerNorm(self.d_model).to(self.device)(output + residual)  # [batch_size, seq_len, d_model]
 
 # d_model is the number features
 # basic postional encoding
@@ -92,11 +99,14 @@ def GenerateGaussianPrior(n_heads,len_q,len_k,*sigma_hs) -> torch.Tensor:
 
 # Basic ScaledDotProduct for transformer
 class ScaledDotProductAttention(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        d_k
+        ):
         super(ScaledDotProductAttention, self).__init__()
-
+        self.d_k = d_k
     def forward(self, Q, K, V, attn_mask):
-        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k) 
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(self.d_k) 
         scores.masked_fill_(attn_mask, -1e9)
         attn = nn.Softmax(dim=-1)(scores) 
         context = torch.matmul(attn, V)  
@@ -104,11 +114,14 @@ class ScaledDotProductAttention(nn.Module):
 
 # ScaledDotProduct With Gaussian Prior
 class GPSDPAttention(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        d_k
+        ):
         super(GPSDPAttention, self).__init__()
-
+        self.d_k = d_k
     def forward(self, Q, K, V, attn_mask):
-        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k) # scores: batch_size,n_heads,len_q,len_k
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(self.d_k) # scores: batch_size,n_heads,len_q,len_k
         batch_size,n_heads,len_q,len_k = scores.shape
         # add gaussian prior
         gm = GenerateGaussianPrior(n_heads,len_q,len_k)
@@ -123,6 +136,12 @@ class GPSDPAttention(nn.Module):
 class MultiHeadAttention(nn.Module):
     def __init__(
         self,
+        d_k,
+        d_q,
+        d_v,
+        n_heads,
+        d_model,
+        device="cpu"
         ):
         super(MultiHeadAttention, self).__init__()
         self.W_Q = nn.Linear(d_model, d_k * n_heads, bias=False)
@@ -130,6 +149,9 @@ class MultiHeadAttention(nn.Module):
         self.W_V = nn.Linear(d_model, d_v * n_heads, bias=False)
         self.fc = nn.Linear(n_heads * d_v, d_model, bias=False)
         self.attn = GPSDPAttention
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_v = d_v
 
     def forward(self, input_Q, input_K, input_V, attn_mask):
         """
@@ -148,7 +170,7 @@ class MultiHeadAttention(nn.Module):
 
         # with gaussian prior
         context, attn = self.attn()(Q, K, V, attn_mask)
-        context = context.transpose(1, 2).reshape(batch_size, -1, n_heads * d_v)
+        context = context.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.d_v)
 
         output = self.fc(context)  # [batch_size, len_q, d_model]
-        return nn.LayerNorm(d_model).to(device)(output + residual), attn
+        return nn.LayerNorm(self.d_model).to(self.device)(output + residual), attn
