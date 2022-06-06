@@ -8,8 +8,6 @@ import torch
 import numpy as np
 from torch import nn
 
-import config
-
 # d_model = config.d_model
 # device = config.device
 # d_ff = config.d_ff
@@ -47,13 +45,13 @@ class PoswiseFeedForwardNet(nn.Module):
 # d_model is the number features
 # basic postional encoding
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, seq_len, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(max_len, d_model)
+        pe = torch.zeros(max_len, seq_len)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, seq_len, 2).float() * (-math.log(10000.0) / seq_len))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)

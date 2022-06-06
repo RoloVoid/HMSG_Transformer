@@ -1,7 +1,8 @@
 # personal test for Hierarchical Multi-Scale Gaussian Transformer
 # dzy 2022.4.27
 
-'''Ding, Qianggang, Sifan Wu, Hao Sun, Jiadong Guo and Jian Guo. 
+'''
+Ding, Qianggang, Sifan Wu, Hao Sun, Jiadong Guo and Jian Guo. 
 《Hierarchical Multi-Scale Gaussian Transformer for Stock Movement Prediction》. 
 Proceedings of the Twenty-Ninth International Joint Conference on Artificial Intelligence, 
 4640–46. Yokohama, Japan: International Joint Conferences on Artificial Intelligence Organization, 2020. 
@@ -11,10 +12,10 @@ https://doi.org/10.24963/ijcai.2020/640.
 import torch
 import torch.nn as nn
 import torch.functional as F
-import basicattn, config
+import model.basicattn as basicattn
 
 # d_model = config.d_model
-device = config.device
+# device = config.device
 # n_heads = config.n_heads
 # n_layers = config.n_layers
 # batch_size = config.batch_size
@@ -69,16 +70,17 @@ Encoder: [seq_len, batch_size, d_model] -> [batch_size, seq_len, d_model]
 class Encoder(nn.Module):
     def __init__(
         self,
-        d_model,
+        seq_len,
         d_q,
         d_k,
         d_v,
         n_heads,
         d_ff,
-        n_layers
+        n_layers,
+        d_model
         ):
         super(Encoder,self).__init__()
-        self.prelayer = PreLayer()
+        self.prelayer = PreLayer(512)
         self.encoder_layers = nn.ModuleList([EncoderLayer(d_q,d_k,d_v,n_heads,d_model,d_ff) for _ in range (n_layers)])
 
     def forward(self,raw_input):
@@ -184,7 +186,7 @@ class TemporalAggregation(nn.Module):
 
     
 # [seq_len, batch_size, d_model] -> [batch_size]
-class HMSG_Transformer(nn.Module):
+class HMSGTransformer(nn.Module):
     def __init__(
         self,
         H,
@@ -195,12 +197,11 @@ class HMSG_Transformer(nn.Module):
         n_layers,
         d_ff,
         batch_size,
-        device,
         d_model,
         seq_len
         ):
-        super(HMSG_Transformer,self).__init__()
-        self.encoder = Encoder(self,d_model,d_q,d_k,d_v,n_heads,d_ff,n_layers)
+        super(HMSGTransformer,self).__init__()
+        self.encoder = Encoder(d_model,d_q,d_k,d_v,n_heads,d_ff,n_layers,d_model)
         self.temporalaggr = TemporalAggregation(H,d_model,batch_size,seq_len)
 
     def forward(self,raw_input):

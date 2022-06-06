@@ -1,7 +1,6 @@
 # This script is for Chinese A shares data -- dzy 2022.6.2
 
 import jqdatasdk as jq
-import pandas as pd
 import yaml
 import os.path
 
@@ -65,7 +64,7 @@ if not os.path.exists('../dataset/'+labelname):
     lag = lag.pivot(index='time',columns='code',values=data['stockts']['tgt'])
     labels = lag.pct_change()
     labels = labels.loc[str(data['stockts']['tgdate'])].\
-            apply(apply_label,args=(data['Threshold']['beta_rise'],data['Threshold']['beta_fall']))[0]
+            apply(apply_label,args=(data['Threshold']['beta_rise'],data['Threshold']['beta_fall']))
     
     # save data to local directory
     labels.to_csv('../dataset/'+labelname)
