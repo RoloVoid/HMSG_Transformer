@@ -53,17 +53,20 @@ if not os.path.exists('../dataset/'+labelname):
     jq.auth(data['metadata']['username'],data['metadata']['password'])
     stockcodes = jq.get_index_stocks(data['stockts']['index'], date=None)
     lag = jq.get_price(stockcodes,
-                        start_date=data['stockts']['enddate'],
                         end_date=data['stockts']['tgdate'],
+                        count=data['stockts']['count'],
                         frequency=data['stockts']['fre'],
                         fields = data['stockts']['tgt'],
                         panel=False)
 
     lag = lag.pivot(index='time',columns='code',values=data['stockts']['tgt'])
-    labels = lag.pct_change()
-    labels = labels.loc[str(data['stockts']['tgdate'])].\
-            apply(apply_label,args=(data['Threshold']['beta_rise'],data['Threshold']['beta_fall']))
-    
+    labels = lag.pct_change(periods=data['Step'])
+    # labels = labels.loc[str(data['stockts']['tgdate'])].\
+    #         apply(apply_label,args=(data['Threshold']['beta_rise'],data['Threshold']['beta_fall']))
+    # labels = labels.dropna().applymap(apply_label(data['Threshold']['beta_rise'],data['Threshold']['beta_fall']))
+    # labels = labels.dropna()
+    labels = labels.dropna().applymap(apply_label,beta_rise=data['Threshold']['beta_rise'],beta_fall=data['Threshold']['beta_fall'])
+
     # save data to local directory
     labels.to_csv('../dataset/'+labelname)
 
