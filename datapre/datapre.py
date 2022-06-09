@@ -22,10 +22,8 @@ tagname = data['stockts']['index']+'.csv'
 
 # for label use
 def apply_label(tg,beta_rise,beta_fall):    
-    if tg < beta_fall:
-        return -1
-    if tg > beta_rise:
-        return 1
+    if tg < beta_fall: return -1
+    if tg > beta_rise: return 1
     return 0
 
 # get data via jqdatasdk
