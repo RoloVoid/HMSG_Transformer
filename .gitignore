@@ -1,4 +1,4 @@
 .gitigonre
 *.yaml
 *.csv
-*.psv
+*.pyc
