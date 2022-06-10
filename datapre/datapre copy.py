@@ -31,12 +31,19 @@ if not os.path.exists('../dataset/'+datasetname):
     # get data
     jq.auth(data['metadata']['username'],data['metadata']['password'])
     stockcodes = jq.get_index_stocks(data['stockts']['index'], date=None)
-    dataset = jq.get_price(stockcodes, 
-                    end_date=data['stockts']['enddate'], 
-                    count=data['stockts']['count'], 
-                    frequency=data['stockts']['fre'], 
-                    fields=data['stockts']['fields'],
-                    panel=False)
+    # this part is specially for daily/minunitely data
+    # dataset = jq.get_price(stockcodes, 
+    #                 end_date=data['stockts']['enddate'], 
+    #                 count=data['stockts']['count'], 
+    #                 frequency=data['stockts']['fre'], 
+    #                 fields=data['stockts']['fields'],
+    #                 panel=False)
+
+    dataset = jq.get_bars(stockcodes,
+        count=data['stockts']['count'],
+        unit=data['stockts']['fre'],
+        fields=data['stockts']['fields']
+        )
 
     # save data to local directory
     dataset.to_csv('../dataset/'+datasetname)

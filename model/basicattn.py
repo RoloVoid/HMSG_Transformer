@@ -139,7 +139,6 @@ class MultiHeadAttention(nn.Module):
         d_v,
         n_heads,
         d_model,
-        device="cpu"
         ):
         super(MultiHeadAttention, self).__init__()
         self.W_Q = nn.Linear(d_model, d_k * n_heads, bias=False)
