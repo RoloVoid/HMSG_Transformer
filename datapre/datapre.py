@@ -11,7 +11,7 @@ import os.path
 # print(ts.get_hs300s())
 
 # generate configs
-target = open("./config2.yaml",'r',encoding='utf-8')
+target = open("./config.yaml",'r',encoding='utf-8')
 config = target.read()
 data = yaml.load(config,Loader=yaml.FullLoader)
 

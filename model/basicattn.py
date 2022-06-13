@@ -8,12 +8,7 @@ import torch
 import numpy as np
 from torch import nn
 
-# d_model = config.d_model
-# device = config.device
-# d_ff = config.d_ff
-# n_heads = config.n_heads
-# d_k,d_v = config.d_k,config.d_v
-# sigma_hs = [5,10,20,40]
+sigma_hs = [5,10,20,40]
 
 # for posfeedforward part of encoder
 class PoswiseFeedForwardNet(nn.Module):
@@ -21,23 +16,19 @@ class PoswiseFeedForwardNet(nn.Module):
         self,
         d_ff,
         d_model,
-        device="cpu"
+        device
         ):
         super(PoswiseFeedForwardNet, self).__init__()
         self.d_model = d_model
         self.device = device
         self.fc = nn.Sequential(
-            # seq_len*d_ff
             nn.Linear(d_model, d_ff, bias=False),
             nn.ReLU(),
-            # seq_len*d_ff
             nn.Linear(d_ff, d_model, bias=False)
         )
 
     def forward(self, inputs):
-        """
-        inputs: [batch_size, seq_len, d_model]
-        """
+        # inputs: [batch_size, seq_len, d_model]
         residual = inputs
         output = self.fc(inputs)
         return nn.LayerNorm(self.d_model).to(self.device)(output + residual)  # [batch_size, seq_len, d_model]
@@ -45,24 +36,26 @@ class PoswiseFeedForwardNet(nn.Module):
 # d_model is the number features
 # basic postional encoding
 class PositionalEncoding(nn.Module):
-    def __init__(self, seq_len, dropout=0.1, max_len=5000):
+    def __init__(self, seq_len, device, max_len=5000):
         super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
+        # [max_len,seq_len]
         pe = torch.zeros(max_len, seq_len)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, seq_len, 2).float() * (-math.log(10000.0) / seq_len))
+        # [max_len] -> [max_len,1]
+        position = torch.arange(0, max_len, dtype=torch.float,device=device).unsqueeze(1)
+        # [ceil(seq_len/2)]
+        div_term = torch.exp(torch.arange(0, seq_len, 2,device=device).float() * (-math.log(10000.0) / seq_len))
+        # [max_len,seq_len]
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
+        # [1,max_len,seq_len] -> [max_len,1,seq_len]
         pe = pe.unsqueeze(0).transpose(0, 1)
+        # means this part will not be updated when training
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        """
-        x: [seq_len, batch_size, d_model]
-        """
+        # x: [seq_len, batch_size, d_model]
         x = x + self.pe[:x.size(0), :]
-        return self.dropout(x)
+        return x
 
 # pad mask function
 def get_attn_pad_mask(seq_q, seq_k):
@@ -79,6 +72,10 @@ def get_attn_subsequence_mask(seq):
     subsequence_mask = np.triu(np.ones(attn_shape), k=1) 
     subsequence_mask = torch.from_numpy(subsequence_mask).byte()
     return subsequence_mask  # [batch_size, tgt_len, tgt_len]
+
+# hierachical mask function for trading gap filter
+def get_h_mask():
+    pass    
 
 # Gaussian Prior Bias
 # sigma_h is a hyperparameter to enchance data locality
@@ -97,38 +94,32 @@ def GenerateGaussianPrior(n_heads,len_q,len_k,*sigma_hs) -> torch.Tensor:
 
 # Basic ScaledDotProduct for transformer
 class ScaledDotProductAttention(nn.Module):
-    def __init__(
-        self,
-        d_k
-        ):
+    def __init__(self):
         super(ScaledDotProductAttention, self).__init__()
-        self.d_k = d_k
     def forward(self, Q, K, V, attn_mask):
-        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(self.d_k) 
+        d_k = K.size(3)
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k) 
         scores.masked_fill_(attn_mask, -1e9)
         attn = nn.Softmax(dim=-1)(scores) 
-        context = torch.matmul(attn, V)  
-        return context, attn
+        context = torch.matmul(attn, V) 
+        return context
 
 # ScaledDotProduct With Gaussian Prior
 class GPSDPAttention(nn.Module):
-    def __init__(
-        self,
-        d_k
-        ):
+    def __init__(self):
         super(GPSDPAttention, self).__init__()
-        self.d_k = d_k
     def forward(self, Q, K, V, attn_mask):
-        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(self.d_k) # scores: batch_size,n_heads,len_q,len_k
+        d_k = K.size(3)
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k) # scores: [batch_size,n_heads,len_q,len_k]
         batch_size,n_heads,len_q,len_k = scores.shape
         # add gaussian prior
-        gm = GenerateGaussianPrior(n_heads,len_q,len_k)
+        gm = GenerateGaussianPrior(n_heads,len_q,len_k,sigma_hs)
         for i in range(batch_size):
             scores[i] +=  gm
         scores.masked_fill_(attn_mask, -1e9)
         attn = nn.Softmax(dim=-1)(scores) 
         context = torch.matmul(attn, V)  
-        return context, attn
+        return context
 
 # basic multihead_attention with attn func as parameter
 class MultiHeadAttention(nn.Module):
@@ -139,17 +130,21 @@ class MultiHeadAttention(nn.Module):
         d_v,
         n_heads,
         d_model,
+        device
         ):
         super(MultiHeadAttention, self).__init__()
         self.W_Q = nn.Linear(d_model, d_k * n_heads, bias=False)
         self.W_K = nn.Linear(d_model, d_k * n_heads, bias=False)
         self.W_V = nn.Linear(d_model, d_v * n_heads, bias=False)
         self.fc = nn.Linear(n_heads * d_v, d_model, bias=False)
-        self.attn = GPSDPAttention
+        self.attn = GPSDPAttention # with gaussian prior
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_v = d_v
+        self.d_k = d_k
+        self.device = device
 
+    # we assume d_q=d_k
     def forward(self, input_Q, input_K, input_V, attn_mask):
         """
         input_Q: [batch_size, len_q, d_model]
@@ -165,9 +160,8 @@ class MultiHeadAttention(nn.Module):
 
         attn_mask = attn_mask.unsqueeze(1).repeat(1, self.n_heads, 1, 1)
 
-        # with gaussian prior
-        context, attn = self.attn()(Q, K, V, attn_mask)
+        context = self.attn()(Q, K, V, attn_mask)
         context = context.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.d_v)
 
         output = self.fc(context)  # [batch_size, len_q, d_model]
-        return nn.LayerNorm(self.d_model).to(self.device)(output + residual), attn
+        return nn.LayerNorm(self.d_model).to(self.device)(output + residual)

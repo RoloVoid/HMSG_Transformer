@@ -59,12 +59,18 @@ if not os.path.exists('../dataset/'+labelname):
     # get data
     jq.auth(data['metadata']['username'],data['metadata']['password'])
     stockcodes = jq.get_index_stocks(data['stockts']['index'], date=None)
-    lag = jq.get_price(stockcodes,
-                        end_date=data['stockts']['tgdate'],
-                        count=data['stockts']['count']+1,
-                        frequency=data['stockts']['fre'],
-                        fields = data['stockts']['tgt'],
-                        panel=False)
+    # lag = jq.get_price(stockcodes,
+    #                     end_date=data['stockts']['tgdate'],
+    #                     count=data['stockts']['count']+1,
+    #                     frequency=data['stockts']['fre'],
+    #                     fields = data['stockts']['tgt'],
+    #                     panel=False)
+    
+    lag = jq.get_bars(stockcodes,
+                    count=data['stockts']['count']+1,
+                    unit=data['stockts']['fre'],
+                    fields=data['stockts']['tgt']
+                    )
 
     lag = lag.pivot(index='time',columns='code',values=data['stockts']['tgt'])
     labels = lag.pct_change(periods=data['Step'])

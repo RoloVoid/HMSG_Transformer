@@ -22,10 +22,10 @@ import model.basicattn as basicattn
 raw_input = [seq_len, batch_size, d_model]
 '''
 class PreLayer(nn.Module):
-    def __init__(self,d_model):
+    def __init__(self,seq_len,d_model,device):
         super(PreLayer,self).__init__()
         self.prehandler = nn.Sequential(
-            basicattn.PositionalEncoding(d_model),
+            basicattn.PositionalEncoding(seq_len,device),
             nn.Linear(d_model,d_model,bias=False),
             nn.Tanh()
         )
@@ -45,10 +45,12 @@ class EncoderLayer(nn.Module):
         d_v,
         n_heads,
         d_model,
-        d_ff):
+        d_ff,
+        device
+        ):
         super(EncoderLayer, self).__init__()
-        self.enc_self_attn = basicattn.MultiHeadAttention(d_q,d_k,d_v,n_heads,d_model)
-        self.pos_ffn = basicattn.PoswiseFeedForwardNet(d_ff,d_model)
+        self.enc_self_attn = basicattn.MultiHeadAttention(d_q,d_k,d_v,n_heads,d_model,device)
+        self.pos_ffn = basicattn.PoswiseFeedForwardNet(d_ff,d_model,device)
 
     def forward(self, enc_inputs, enc_self_attn_mask):
         enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) 
@@ -70,17 +72,24 @@ class Encoder(nn.Module):
         n_heads,
         d_ff,
         n_layers,
-        d_model
+        d_model,
+        device
         ):
         super(Encoder,self).__init__()
-        self.prelayer = PreLayer(512)
-        self.encoder_layers = nn.ModuleList([EncoderLayer(d_q,d_k,d_v,n_heads,d_model,d_ff) for _ in range (n_layers)])
+        self.prelayer = PreLayer(d_model)
+        self.encoder_layers = nn.ModuleList([EncoderLayer(d_q,d_k,d_v,n_heads,d_model,d_ff,device) for _ in range (n_layers)])
 
     def forward(self,raw_input):
         enc_out = self.prelayer(raw_input).transpose(0,1)
         enc_self_attn_mask = basicattn.get_attn_pad_mask(enc_out,enc_out)
+
+        # concat weights of w_v for Orthogonal Regularization
+        # weight: [d_v * n_heads, d_model]
+        w_vhs = []
         for l in self.encoder_layers:
-            enc_out, _ = l(enc_out,enc_self_attn_mask)
+            enc_out = l(enc_out,enc_self_attn_mask)
+            w_vhs.append(l.enc_self_attn.W_V.weight)
+        self.w_vhs = w_vhs
         return enc_out
 
 
@@ -89,17 +98,16 @@ class TemporalAttention(nn.Module):
         self,
         d_model,
         seq_len,
-        batch_size
         ):
         super(TemporalAttention,self).__init__()
 
         self.seq_len = seq_len
-        self.batch_size = batch_size
         self.u_t = nn.Linear(1,1,bias=False)
         self.W_e = nn.Linear(d_model,1)
 
     def forward(self,enc_out):
-        tgtweight = torch.zeros(self.seq_len,self.batch_size,1)
+        batch_size = enc_out.size(0)
+        tgtweight = torch.zeros(self.seq_len,batch_size,1)
         # [batch_size,seq_len,d_model] -> [seq_len,batch_size,d_model]
         enc_out = enc_out.transpose(0,1)
         for m in range (self.seq_len):
@@ -132,18 +140,15 @@ class AggregationLayer(nn.Module):
 class TemporalAggregation(nn.Module):
     def __init__(
         self,
-        H,
         d_model,
-        batch_size,
         seq_len
         ):
         super(TemporalAggregation,self).__init__()
-        self.H = H
         # self.TALayer = TemporalAttnLayer(H,d_model,batch_size,seq_len)
-        self.TALayer = TemporalAttention(d_model,seq_len,batch_size)
+        self.TALayer = TemporalAttention(d_model,seq_len)
         self.ALayer = AggregationLayer(d_model)
     def forward(self,enc_out):
-        return self.ALayer(self.TALayer(self.H)(enc_out))
+        return self.ALayer(self.TALayer(enc_out))
 
     
 # [seq_len, batch_size, d_model] -> [batch_size]
@@ -157,13 +162,12 @@ class HMSGTransformer(nn.Module):
         n_heads,
         n_layers,
         d_ff,
-        batch_size,
         d_model,
         seq_len
         ):
         super(HMSGTransformer,self).__init__()
         self.encoder = Encoder(d_model,d_q,d_k,d_v,n_heads,d_ff,n_layers,d_model)
-        self.temporalaggr = TemporalAggregation(H,d_model,batch_size,seq_len)
+        self.temporalaggr = TemporalAggregation(H,d_model,seq_len)
 
     def forward(self,raw_input):
         return self.temporalaggr(self.encoder(raw_input))
