@@ -29,7 +29,7 @@ NUM_WORKERS = 2
 LEARNING_RATE = 1e-4
 EPOCHS = 30
 N_HEADS = 4
-GAMA = 0.5 # for Orthogonal Regularization
+GAMA = 0.5 # A hyperparameter for Orthogonal Regularization
 
 # Dataset class
 class StockDataSet(Dataset):
@@ -85,12 +85,12 @@ if __name__ == "__main__":
         n_layers=3,
         d_ff=16,
         batch_size=BATCH_SIZE,
-        d_model=5,
+        f_size=5,
         seq_len=5,
     )
 
     # Orthogonal Regularization for Multi-Head Self-Attention Mechanism
-    #  weight: [d_v * n_heads, d_model] -> [n_heads, d_v*d_model]
+    #  weight: [d_v * n_heads, f_size] -> [n_heads, d_v*f_size]
     m = []
     w_vhs = mlmodel.encoder.w_vhs
     fnorm = nn.MSELoss(reduction='mean')
