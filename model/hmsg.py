@@ -99,6 +99,52 @@ class Encoder(nn.Module):
         self.w_vhs = w_vhs
         return enc_out
 
+# [batch_size,seq_len,f_size]
+class TemporalAttnWithLstm(nn.Module):
+    def __init__(
+        self,
+        H,
+        E,
+        f_size,
+        device
+        ):
+        super(TemporalAttnWithLstm,self).__init__()
+        self.H = H
+        self.LSTM = nn.LSTMCell(f_size,H,device)
+        self.W_a = nn.Linear(self.H,E)
+        self.U_a_T = nn.Linear(E,1,bias=False)
+        self.tanh = torch.tanh()
+        self.softmax = F.softmax()
+
+    def forward(self,enc_out):
+        # [batch_size,seq_len,f_size] -> [seq_len, batch_size, f_size]
+        enc_out = enc_out.transpose(0,1)
+        batch_size = enc_out.size(1)
+        hx = torch.zeros(batch_size,self.H)
+        cx = torch.zeros(batch_size,self.H)
+
+        output = []
+        self.W_a = nn.Linear(self.H,bias=True)
+        for i in range (enc_out.size(0)):
+            hx,cx = self.LSTM(enc_out[i],(hx,cx))
+            output.append(hx)
+
+        # [seq_len*batch_size, self.H]
+        output = torch.cat(output,dim=0)
+
+        # [seq_len*batch_size, 1]->[batch_size,seq_len]
+        a_s_tilda = self.U_a_T(self.tanh(self.W_a(output))).squeeze(2).reshape(batch_size,-1)
+
+        a_s = self.softmax(a_s_tilda,dim=1)
+
+        # [seq_len, batch_size, f_size] -> [f_size, batch_size, seq_len]
+        enc_out = enc_out.permute(2,1,0)
+
+        # [batch_size, f_size]
+        return torch.sum(enc_out*a_s,dim=2).transpose(0,1)
+
+        
+
 
 class TemporalAttention(nn.Module):
     def __init__(
