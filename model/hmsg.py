@@ -143,37 +143,6 @@ class TemporalAttnWithLstm(nn.Module):
         # [batch_size, f_size]
         return torch.sum(enc_out*a_s,dim=2).transpose(0,1)
 
-        
-
-
-class TemporalAttention(nn.Module):
-    def __init__(
-        self,
-        f_size,
-        seq_len,
-        ):
-        super(TemporalAttention,self).__init__()
-
-        self.seq_len = seq_len
-        self.u_t = nn.Linear(1,1,bias=False)
-        self.W_e = nn.Linear(f_size,1)
-
-    def forward(self,enc_out):
-        batch_size = enc_out.size(0)
-        tgtweight = torch.zeros(self.seq_len,batch_size,1)
-        # [batch_size,seq_len,f_size] -> [seq_len,batch_size,f_size]
-        enc_out = enc_out.transpose(0,1)
-        for m in range (self.seq_len):
-            alpha_s_t = self.u_t(self.W_e(enc_out))
-            tgtweight[m]=alpha_s_t
-        # [seq_len,batch_size,1] -> [seq_len,batch_size] -> [batch_size,seq_len]
-        tgtweight = F.softmax(tgtweight).squeeze(2).transpose(0,1)
-        # [seq_len,batch_size,f_size] -> [f_size,batch_size,seq_len]
-        enc_out = enc_out.transpose(0,2)
-        # [f_size,batch_size,seq_len]*[batch_size,seq_len] -> [f_size,batch_size,seq_len] -> [f_size, batch_size]
-        return torch.sum((enc_out*tgtweight),dim=2)
-
-
 # [batch_size,f_size] -> [batch_size,1] -> [batch_size]
 class AggregationLayer(nn.Module):
     def __init__(
@@ -198,11 +167,10 @@ class TemporalAggregation(nn.Module):
         ):
         super(TemporalAggregation,self).__init__()
         # self.TALayer = TemporalAttnLayer(H,f_size,batch_size,seq_len)
-        self.TALayer = TemporalAttention(f_size,seq_len)
+        self.TALayer = TemporalAttnWithLstm(f_size,seq_len)
         self.ALayer = AggregationLayer(f_size)
     def forward(self,enc_out):
         return self.ALayer(self.TALayer(enc_out))
-
     
 # [seq_len, batch_size, f_size] -> [batch_size]
 class HMSGTransformer(nn.Module):

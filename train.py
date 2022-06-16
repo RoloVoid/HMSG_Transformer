@@ -3,7 +3,6 @@ personal implementation of training procedure for Hierarchical Multi-Scale Gauss
 dzy 2022.5.31
 '''
 
-from tkinter import N
 import torch
 import torch.nn as nn
 import torch.optim as optim
