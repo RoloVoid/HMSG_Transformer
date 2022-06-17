@@ -14,8 +14,6 @@ import tqdm
 import model
 
 
-
-
 # label = "./dataset/example.label.csv"
 # dataset = "./dataset/example.dataset.csv"
 
@@ -104,3 +102,4 @@ if __name__ == "__main__":
     # According to the paper, the model uses BCELoss
     loss_func = nn.BCELoss()
     optim = optim.Adam(mlmodel.parameters,lr=LEARNING_RATE)
+

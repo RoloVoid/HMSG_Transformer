@@ -1,7 +1,10 @@
+## currently not in use
+## TODO Build dataset with hs300
+ 
 import baostock as bs
 import pandas as pd
 
-## system.login() ##
+# system.login()
 lg = bs.login()
 print('login respond error_code:'+lg.error_code)
 print('login respond  error_msg:'+lg.error_msg)

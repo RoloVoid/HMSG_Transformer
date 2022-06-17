@@ -1,3 +1,7 @@
+'''
+Script for getting raw csi500 data -- dzy 6.12
+'''
+
 import baostock as bs
 import pandas as pd
 import numpy as np
@@ -9,8 +13,12 @@ print('login respond error_code:'+lg.error_code)
 print('login respond  error_msg:'+lg.error_msg)
 
 # If you get it from https://www.csindex.com.cn/zh-CN/indices/index#/indices/family/detail?indexCode=000905
+# Then the filename is this.
 filename = "000905cons.xls"
 codepath = "../dataset/csi500.csv"
+
+prefix = "../dataset"
+if not os.path.exists(prefix): os.mkdir(prefix)
 
 # Get CSI500 components
 assert os.path.exists(f"../dataset/{filename}"),f'Please get required csi500 file {filename}'
@@ -29,10 +37,10 @@ if not os.path.exists("../dataset/csi500.csv"):
     p.to_csv(codepath,index=False)
 
 
+# Get csi500 raw data
 codes = np.array(pd.read_csv(codepath)).T.tolist()[0]
-
 for x in codes:
-    filename = f'../dataset/csi500/{x}.csv'
+    filename = f'../dataset/csi500raw/{x}.csv'
     print(x)
     if os.path.exists(filename): continue
 
