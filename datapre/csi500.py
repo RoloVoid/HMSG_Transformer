@@ -34,8 +34,7 @@ if not os.path.exists("../dataset/csi500.csv"):
         data['成分券代码Constituent Code'][data['交易所Exchange'] == "深圳证券交易所"]
 
     p = data['成分券代码Constituent Code']
-    p.to_csv(codepath,index=False)
-
+    p.to_csv(codepath,index=False,header=None)
 
 # Get csi500 raw data
 codes = np.array(pd.read_csv(codepath)).T.tolist()[0]
@@ -54,6 +53,13 @@ for x in codes:
         data_list.append(rs.get_row_data())
     result = pd.DataFrame(data_list, columns=rs.fields)
     result.to_csv(filename, index=False)
+
+# Get date
+if not os.path.exists("../dataset/csi500date.csv"):
+    x = codes[0]
+    filename = f'../dataset/csi500raw/{x}.csv'
+    temp = pd.read_csv(filename)
+    temp['date'].to_csv("../dataset/csi500date.csv")
 
 # logout
 bs.logout()

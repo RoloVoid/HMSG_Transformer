@@ -45,8 +45,16 @@ class PositionalEncoding(nn.Module):
         # [ceil(seq_len/2)]
         div_term = torch.exp(torch.arange(0, seq_len, 2,device=device).float() * (-math.log(10000.0) / seq_len))
         # [max_len,seq_len]
+
+        # 
+        print(seq_len)
+        print(div_term.size())
+        print(pe[:, 1::2].size())
+        print(torch.cos(position * div_term).size())
+
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
+        
         # [1,max_len,seq_len] -> [max_len,1,seq_len]
         pe = pe.unsqueeze(0).transpose(0, 1)
         # means this part will not be updated when training

@@ -12,7 +12,12 @@ https://doi.org/10.24963/ijcai.2020/640.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import model.basicattn as basicattn
+from model.basicattn import PositionalEncoding, \
+        MultiHeadAttention, \
+        PoswiseFeedForwardNet, \
+        get_attn_pad_mask, \
+        get_attn_subsequence_mask, \
+        get_hierarchical_mask
 
 # Hmsg_Transformer Model.
 # It is an encoder_only network.
@@ -27,10 +32,12 @@ class PreLayer(nn.Module):
     def __init__(self,seq_len,f_size,device):
         super(PreLayer,self).__init__()
         self.prehandler = nn.Sequential(
-            basicattn.PositionalEncoding(seq_len,device),
+            PositionalEncoding(seq_len,device),
             nn.Linear(f_size,f_size,bias=False),
             nn.Tanh()
         )
+        # 
+        print(seq_len)
 
     def forward(self,raw_input):
         return self.prehandler(raw_input)
@@ -51,8 +58,8 @@ class EncoderLayer(nn.Module):
         device
         ):
         super(EncoderLayer, self).__init__()
-        self.enc_self_attn = basicattn.MultiHeadAttention(d_q,d_k,d_v,n_heads,f_size,device)
-        self.pos_ffn = basicattn.PoswiseFeedForwardNet(d_ff,f_size,device)
+        self.enc_self_attn = MultiHeadAttention(d_q,d_k,d_v,n_heads,f_size,device)
+        self.pos_ffn = PoswiseFeedForwardNet(d_ff,f_size,device)
 
     def forward(self, enc_inputs, enc_self_attn_mask):
         enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) 
@@ -78,25 +85,26 @@ class Encoder(nn.Module):
         device
         ):
         super(Encoder,self).__init__()
-        self.prelayer = PreLayer(f_size)
+        #
+        print(f"Encoder: seq_len = {seq_len}")
+        self.prelayer = PreLayer(seq_len,f_size,device)
         self.encoder_layers = nn.ModuleList([EncoderLayer(d_q,d_k,d_v,n_heads,f_size,d_ff,device) for _ in range (n_layers)])
+        self.w_vhs = []
 
     def forward(self,raw_input):
         enc_out = self.prelayer(raw_input).transpose(0,1)
-        pad_attn_mask = basicattn.get_attn_pad_mask(enc_out,enc_out)
-        seq_attn_mask = basicattn.get_attn_subsequence_mask(enc_out)
+        pad_attn_mask = get_attn_pad_mask(enc_out,enc_out)
+        seq_attn_mask = get_attn_subsequence_mask(enc_out)
         enc_self_attn_mask = pad_attn_mask+seq_attn_mask
 
         # extract weights of w_v for Orthogonal Regularization
         # weight: [d_v * n_heads, f_size]
-        w_vhs = []
         counter = 0
         for l in self.encoder_layers:
             # Add hierarchical mask as trading gap spliter
-            h_enc_self_attn_mask = torch.matmul(enc_self_attn_mask,basicattn.get_hierarchical_mask(enc_out,sigma_hs[counter]))
+            h_enc_self_attn_mask = torch.matmul(enc_self_attn_mask,get_hierarchical_mask(enc_out,sigma_hs[counter]))
             enc_out = l(enc_out,h_enc_self_attn_mask)
-            w_vhs.append(l.enc_self_attn.W_V.weight)
-        self.w_vhs = w_vhs
+            self.w_vhs.append(l.enc_self_attn.W_V.weight)
         return enc_out
 
 # [batch_size,seq_len,f_size]
@@ -113,8 +121,6 @@ class TemporalAttnWithLstm(nn.Module):
         self.LSTM = nn.LSTMCell(f_size,H,device)
         self.W_a = nn.Linear(self.H,E)
         self.U_a_T = nn.Linear(E,1,bias=False)
-        self.tanh = torch.tanh()
-        self.softmax = F.softmax()
 
     def forward(self,enc_out):
         # [batch_size,seq_len,f_size] -> [seq_len, batch_size, f_size]
@@ -133,9 +139,9 @@ class TemporalAttnWithLstm(nn.Module):
         output = torch.cat(output,dim=0)
 
         # [seq_len*batch_size, 1]->[batch_size,seq_len]
-        a_s_tilda = self.U_a_T(self.tanh(self.W_a(output))).squeeze(2).reshape(batch_size,-1)
+        a_s_tilda = self.U_a_T(torch.tanh(self.W_a(output))).squeeze(2).reshape(batch_size,-1)
 
-        a_s = self.softmax(a_s_tilda,dim=1)
+        a_s = F.softmax(a_s_tilda,dim=1)
 
         # [seq_len, batch_size, f_size] -> [f_size, batch_size, seq_len]
         enc_out = enc_out.permute(2,1,0)
@@ -162,12 +168,14 @@ class AggregationLayer(nn.Module):
 class TemporalAggregation(nn.Module):
     def __init__(
         self,
+        H,
+        E,
         f_size,
         seq_len
         ):
         super(TemporalAggregation,self).__init__()
         # self.TALayer = TemporalAttnLayer(H,f_size,batch_size,seq_len)
-        self.TALayer = TemporalAttnWithLstm(f_size,seq_len)
+        self.TALayer = TemporalAttnWithLstm(H,E,f_size,seq_len)
         self.ALayer = AggregationLayer(f_size)
     def forward(self,enc_out):
         return self.ALayer(self.TALayer(enc_out))
@@ -177,6 +185,7 @@ class HMSGTransformer(nn.Module):
     def __init__(
         self,
         H,
+        E,
         d_q,
         d_k,
         d_v,
@@ -184,11 +193,12 @@ class HMSGTransformer(nn.Module):
         n_layers,
         d_ff,
         f_size,
-        seq_len
+        seq_len,
+        device
         ):
         super(HMSGTransformer,self).__init__()
-        self.encoder = Encoder(f_size,d_q,d_k,d_v,n_heads,d_ff,n_layers,f_size)
-        self.temporalaggr = TemporalAggregation(H,f_size,seq_len)
+        self.encoder = Encoder(seq_len,d_q,d_k,d_v,n_heads,d_ff,n_layers,f_size,device)
+        self.temporalaggr = TemporalAggregation(H,E,f_size,seq_len)
 
     def forward(self,raw_input):
         return self.temporalaggr(self.encoder(raw_input))

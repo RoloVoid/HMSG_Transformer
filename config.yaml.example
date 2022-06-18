@@ -1,0 +1,15 @@
+# This file is used to spilt dataset into train/test/val
+
+TrainStart: 2018-06-04
+TrainEnd: 2021-06-07
+
+TestStart: 2021-06-07
+TestEnd: 2021-12-03
+
+ValStart: 2021-12-06
+ValEnd: 2022-06-10
+
+debug: True
+
+datapath: "./dataset/csi500labeled/16"
+

@@ -11,6 +11,7 @@ prefix = "../dataset"
 windows_size = [16,80,160,320,640]
 beta_rise = 0.005
 beta_fall = -0.00105
+fixed_num = 16
 
 # declare dirs
 origin_dir = "csi500raw"
@@ -35,16 +36,18 @@ for target in m:
         labeled = data.copy()
 
         # normalize
-        labeled['preclose'] = data['close'].shift(w)
+        labeled['preclose'] = data['close'].shift(w-1)
         labeled['open'] = (data['open']-labeled['preclose'])/labeled['preclose']
         labeled['high'] = (data['high']-labeled['preclose'])/labeled['preclose']
         labeled['low'] = (data['low']-labeled['preclose'])/labeled['preclose']
+        labeled['close'] = (data['close']-labeled['preclose'])/labeled['preclose']
 
         # labeling
-        labeled['label']=labeled['close'].pct_change(periods=w)
-        labeled['label'][labeled['label'].map(lambda x: x<=beta_rise and x>=beta_fall)] = 0
-        labeled['label'][labeled['label']>beta_rise] = 1
-        labeled['label'][labeled['label']<beta_fall] = -1
+        labeled['label'] = 0
+        labeled['label'][labeled['close'].map(lambda x: x<=beta_rise and x>=beta_fall)] = 0
+        labeled['label'][labeled['close']>beta_rise] = 1
+        labeled['label'][labeled['close']<beta_fall] = -1
 
-        labeled = labeled.drop('preclose',axis=1).dropna()
-        labeled.to_csv(datasetdir+"/"+target)
+        labeled = labeled.drop(['preclose','time','date'],axis=1)
+        labeled[:w-1] = -123321
+        labeled.to_csv(datasetdir+"/"+target,index=False,header=None)
