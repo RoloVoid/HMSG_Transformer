@@ -6,11 +6,8 @@ dzy 2022.5.31
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset,DataLoader,random_split
-import math
-import pandas as pd
-import random
-import tqdm
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 import model
 import yaml
 from load import StockData,StockDataSet
@@ -19,7 +16,8 @@ from load import StockData,StockDataSet
 datasetdir = "./dataset/csi500labeled/16"
 datefile = "./dataset/csi500date.csv"
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = "cpu"
 BATCH_SIZE = 5
 NUM_WORKERS = 2
 LEARNING_RATE = 1e-4
@@ -30,39 +28,46 @@ GAMA = 0.5 # A hyperparameter for Orthogonal Regularization
 
 if __name__ == "__main__":
 
-    # # split data
-    # target = open("./config.yaml",encoding='utf-8')
-    # temp = target.read()
-    # config = yaml.load(temp,Loader=yaml.FullLoader)
+    # split data
+    target = open("./config.yaml",encoding='utf-8')
+    temp = target.read()
+    config = yaml.load(temp,Loader=yaml.FullLoader)
 
-    # print(config['TrainStart'])
+    csi500 = StockData(datasetdir,shuffle=False)
 
-    # csi500 = StockData(datasetdir,shuffle=False)
-    # csi500DataSet = StockDataSet(
-    #     trainstart=config['TrainStart'],
-    #     trainend=config['TrainEnd'],
-    #     teststart=config['TestStart'],
-    #     testend=config['TestEnd'],
-    #     valstart=config['ValStart'],
-    #     valend=config['ValEnd'],
-    #     datefile=datefile,
-    #     window_size=WINDOW_SIZE,
-    #     data=csi500,
-    #     type="train"
-    #     )
-    
-    # print(csi500DataSet.start,csi500DataSet.end)
-    # # Because of cleanning, dataset size is changing
-    # size = len(csi500DataSet)
-    # train = math.ceil(size/1.5) # use about 2/3 of the dataset as training part
-    # val = round((size-train)/2)
-    # test = size-train-val
+    # Generate Data
+    DatasetTest = StockDataSet(
+        startdate=config['TestStart'],
+        enddate=config['TestEnd'],
+        datefile=datefile,
+        window_size=WINDOW_SIZE,
+        data=csi500[1],
+        type="train"
+    )
 
-    # # # generate dataloader
-    # # dataset_train,dataset_val,dataset_test = random_split(csi500DataSet,(train,val,test))
-    # # dataloader_train = DataLoader(dataset_train,batch_size=BATCH_SIZE,shuffle=True,num_workers=NUM_WORKERS,pin_memory=False,drop_last=True)
-    # # dataloader_val = DataLoader(dataset_val,batch_size=BATCH_SIZE,shuffle=True,num_workers=NUM_WORKERS,drop_last=True)
-    # # dataloader_test = DataLoader(dataset_test,batch_size=BATCH_SIZE,)
+    DatasetVal = StockDataSet(
+        startdate=config['ValStart'],
+        enddate=config['ValEnd'],
+        datefile=datefile,
+        window_size=WINDOW_SIZE,
+        data=csi500[1],
+        type="train"
+    )
+
+
+    DatasetTrain = StockDataSet(
+        startdate=config['TrainStart'],
+        enddate=config['TrainEnd'],
+        datefile=datefile,
+        window_size=WINDOW_SIZE,
+        data=csi500[1],
+        type="train"
+        )
+
+    # generate dataloader
+    dataloader_train = DataLoader(DatasetTrain,batch_size=BATCH_SIZE,num_workers=NUM_WORKERS,pin_memory=False,drop_last=True)
+    dataloader_val = DataLoader(DatasetVal,batch_size=BATCH_SIZE,num_workers=NUM_WORKERS)
+    dataloader_test = DataLoader(DatasetTest,batch_size=BATCH_SIZE,num_workers=NUM_WORKERS)
     
 
     # a model instance
@@ -76,7 +81,7 @@ if __name__ == "__main__":
         n_layers=3,
         d_ff=16,
         f_size=5,
-        seq_len=20,
+        seq_len=16,
         device=device
     )
 
@@ -96,4 +101,15 @@ if __name__ == "__main__":
     # According to the paper, the model uses BCELoss
     loss_func = nn.BCELoss()
     optim = optim.Adam(mlmodel.parameters(),lr=LEARNING_RATE)
+
+
+    for i in range (EPOCHS):
+        for step,[data,label] in enumerate(tqdm(dataloader_train)):
+            outputs = mlmodel(data)
+            loss = loss_func(outputs,label)
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+
+            if step % 20 == 0: print("train time：{}, Loss: {}".format(step, loss.item()))
 

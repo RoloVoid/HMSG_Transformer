@@ -15,7 +15,6 @@ import torch.nn.functional as F
 from model.basicattn import PositionalEncoding, \
         MultiHeadAttention, \
         PoswiseFeedForwardNet, \
-        get_attn_pad_mask, \
         get_attn_subsequence_mask, \
         get_hierarchical_mask
 
@@ -26,21 +25,16 @@ from model.basicattn import PositionalEncoding, \
 sigma_hs = [5,10,20,40]
 
 '''
-raw_input = [seq_len, batch_size, f_size]
+raw_input = [batch_size, seq_len, f_size]
 '''
 class PreLayer(nn.Module):
     def __init__(self,seq_len,f_size,device):
         super(PreLayer,self).__init__()
-        self.prehandler = nn.Sequential(
-            PositionalEncoding(seq_len,device),
-            nn.Linear(f_size,f_size,bias=False),
-            nn.Tanh()
-        )
-        # 
-        print(seq_len)
+        self.pos = PositionalEncoding(seq_len,device)
+        self.linear = nn.Linear(f_size,f_size,bias=False)
 
     def forward(self,raw_input):
-        return self.prehandler(raw_input)
+        return torch.tanh(self.linear(self.pos(raw_input)))
 
 """
 enc_inputs: [batch_size, seq_len, f_size]
@@ -58,18 +52,21 @@ class EncoderLayer(nn.Module):
         device
         ):
         super(EncoderLayer, self).__init__()
+        self.device = device
         self.enc_self_attn = MultiHeadAttention(d_q,d_k,d_v,n_heads,f_size,device)
         self.pos_ffn = PoswiseFeedForwardNet(d_ff,f_size,device)
 
     def forward(self, enc_inputs, enc_self_attn_mask):
-        enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask) 
+        enc_inputs = enc_inputs.to(self.device)
+        enc_self_attn_mask = enc_self_attn_mask.to(self.device)
+        enc_outputs = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, enc_self_attn_mask).to(self.device) 
         # enc_inputs to same Q,K,V
         enc_outputs = self.pos_ffn(enc_outputs)
         # enc_outputs: [batch_size, seq_len, f_size]
-        return enc_outputs, attn
+        return enc_outputs
 
 '''
-Encoder: [seq_len, batch_size, f_size] -> [batch_size, seq_len, f_size] 
+Encoder: [batch_size, seq_len, f_size] -> [batch_size, seq_len, f_size] 
 '''
 class Encoder(nn.Module):
     def __init__(
@@ -85,25 +82,25 @@ class Encoder(nn.Module):
         device
         ):
         super(Encoder,self).__init__()
-        #
-        print(f"Encoder: seq_len = {seq_len}")
         self.prelayer = PreLayer(seq_len,f_size,device)
         self.encoder_layers = nn.ModuleList([EncoderLayer(d_q,d_k,d_v,n_heads,f_size,d_ff,device) for _ in range (n_layers)])
         self.w_vhs = []
+        self.device = device
 
     def forward(self,raw_input):
-        enc_out = self.prelayer(raw_input).transpose(0,1)
-        pad_attn_mask = get_attn_pad_mask(enc_out,enc_out)
-        seq_attn_mask = get_attn_subsequence_mask(enc_out)
-        enc_self_attn_mask = pad_attn_mask+seq_attn_mask
+        # [batch_size, seq_len, f_size]
+        enc_out = self.prelayer(raw_input).to(self.device)
+        seq_attn_mask = get_attn_subsequence_mask(enc_out).to(self.device)
+        enc_self_attn_mask = seq_attn_mask
 
         # extract weights of w_v for Orthogonal Regularization
         # weight: [d_v * n_heads, f_size]
         counter = 0
         for l in self.encoder_layers:
             # Add hierarchical mask as trading gap spliter
-            h_enc_self_attn_mask = torch.matmul(enc_self_attn_mask,get_hierarchical_mask(enc_out,sigma_hs[counter]))
-            enc_out = l(enc_out,h_enc_self_attn_mask)
+            h_mask = get_hierarchical_mask(enc_out,sigma_hs[counter]).to(self.device)
+            h_enc_self_attn_mask = (h_mask*enc_self_attn_mask).to(self.device)
+            enc_out = l(enc_out,h_enc_self_attn_mask).to(self.device)
             self.w_vhs.append(l.enc_self_attn.W_V.weight)
         return enc_out
 
@@ -118,8 +115,10 @@ class TemporalAttnWithLstm(nn.Module):
         ):
         super(TemporalAttnWithLstm,self).__init__()
         self.H = H
-        self.LSTM = nn.LSTMCell(f_size,H,device)
-        self.W_a = nn.Linear(self.H,E)
+        self.E = E
+        self.device = device
+        self.LSTM = nn.LSTMCell(f_size,H)
+        self.W_a = nn.Linear(H,E)
         self.U_a_T = nn.Linear(E,1,bias=False)
 
     def forward(self,enc_out):
@@ -130,7 +129,6 @@ class TemporalAttnWithLstm(nn.Module):
         cx = torch.zeros(batch_size,self.H)
 
         output = []
-        self.W_a = nn.Linear(self.H,bias=True)
         for i in range (enc_out.size(0)):
             hx,cx = self.LSTM(enc_out[i],(hx,cx))
             output.append(hx)
@@ -139,8 +137,7 @@ class TemporalAttnWithLstm(nn.Module):
         output = torch.cat(output,dim=0)
 
         # [seq_len*batch_size, 1]->[batch_size,seq_len]
-        a_s_tilda = self.U_a_T(torch.tanh(self.W_a(output))).squeeze(2).reshape(batch_size,-1)
-
+        a_s_tilda = self.U_a_T(torch.tanh(self.W_a(output))).squeeze(1).reshape(batch_size,-1)
         a_s = F.softmax(a_s_tilda,dim=1)
 
         # [seq_len, batch_size, f_size] -> [f_size, batch_size, seq_len]
@@ -201,4 +198,5 @@ class HMSGTransformer(nn.Module):
         self.temporalaggr = TemporalAggregation(H,E,f_size,seq_len)
 
     def forward(self,raw_input):
-        return self.temporalaggr(self.encoder(raw_input))
+        temp = self.encoder(raw_input)
+        return self.temporalaggr(temp)

@@ -6,7 +6,8 @@ import os
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
-import random 
+import random
+from tqdm import tqdm 
 
 # Data init 
 class StockData():
@@ -25,28 +26,27 @@ class StockData():
         else: self.datalist = datalist
 
         self.datadir = datadir
-        self.data = []
+        self._data = []
         self._read()
 
     def _read(self):
-        for m in self.datalist:
-            print(f"reading {m} ......")
-            self.data.append(torch.Tensor(pd.read_csv(self.datadir+"/"+m).values))
+        print("start reading dataset......")
+        for m in tqdm(self.datalist):
+            self._data.append(torch.Tensor(pd.read_csv(self.datadir+"/"+m).values))
         print("reading dataset done")
     
     def __len__(self):
-        return len(self.data)
+        return len(self._data)
+
+    def __getitem__(self,index):
+        return self._data[index]
     
 # Dataset class
 class StockDataSet(Dataset):
     def __init__(
         self,
-        trainstart,
-        trainend,
-        teststart,
-        testend,
-        valstart,
-        valend,
+        startdate,
+        enddate,
         datefile,
         window_size,
         data,
@@ -55,12 +55,8 @@ class StockDataSet(Dataset):
         super(StockDataSet,self).__init__()
 
         # date for different dataset
-        self.trainstart = trainstart
-        self.trainend = trainend
-        self.teststart = teststart
-        self.testend = testend
-        self.valstart = valstart
-        self.valend = valend
+        self.datestart = startdate
+        self.dateend = enddate
         self.data = data
 
         # all the date
@@ -79,22 +75,20 @@ class StockDataSet(Dataset):
     
     def __getitem__(self,index):
         start = self.start+index
-        end = start+self.window_size
-        return self.data[start,end][:-1],self.data[end-1][-1]
+        end = start+self.window
+        return self.data[start:end,0:-1],self.data[end-1,-1]
+
+    def gettype(self):
+        return self.type
     
     def _dateinit(self):
         assert os.path.exists(self.datefile), "Date file may not initialize successfully"
         date = pd.read_csv(self.datefile)     
         # 0 and 15 is specially for dataset which fre = 15min
-        if self.type == "train":
-            self.start = date[date['date']==self.trainstart].index[0]
-            self.end = date[date['date']==self.trainend].index[0]
-        elif type == "test":
-            self.start = date[date['date']==self.teststart].index[0]
-            self.end = date[date['date']==self.testend].index[0]
-        else:
-            self.start = date[date['date']==self.valstart].index[0]
-            self.end = date[date['date']==self.valend].index[0]
+
+        self.start = date[date['date']==self.datestart].index[0]
+        self.end = date[date['date']==self.dateend].index[0]
+
         self._initcheck = True
 
     def __len__(self):
