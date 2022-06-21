@@ -30,7 +30,7 @@ raw_input = [batch_size, seq_len, f_size]
 class PreLayer(nn.Module):
     def __init__(self,seq_len,f_size,device):
         super(PreLayer,self).__init__()
-        self.pos = PositionalEncoding(seq_len,device)
+        self.pos = PositionalEncoding(f_size,device)
         self.linear = nn.Linear(f_size,f_size,bias=False)
 
     def forward(self,raw_input):
@@ -82,13 +82,14 @@ class Encoder(nn.Module):
         device
         ):
         super(Encoder,self).__init__()
-        self.prelayer = PreLayer(seq_len,f_size,device)
+        self.prelayer = PreLayer(seq_len, f_size,device)
         self.encoder_layers = nn.ModuleList([EncoderLayer(d_q,d_k,d_v,n_heads,f_size,d_ff,device) for _ in range (n_layers)])
         self.w_vhs = []
         self.device = device
 
     def forward(self,raw_input):
         # [batch_size, seq_len, f_size]
+        self.w_vhs = []
         enc_out = self.prelayer(raw_input).to(self.device)
         seq_attn_mask = get_attn_subsequence_mask(enc_out).to(self.device)
         enc_self_attn_mask = seq_attn_mask
@@ -139,7 +140,7 @@ class TemporalAttnWithLstm(nn.Module):
         # [seq_len*batch_size, 1]->[batch_size,seq_len]
         a_s_tilda = self.U_a_T(torch.tanh(self.W_a(output))).squeeze(1).reshape(batch_size,-1)
         a_s = F.softmax(a_s_tilda,dim=1)
-
+       
         # [seq_len, batch_size, f_size] -> [f_size, batch_size, seq_len]
         enc_out = enc_out.permute(2,1,0)
 
@@ -159,7 +160,9 @@ class AggregationLayer(nn.Module):
         )
     
     def forward(self,tgt):
-        return self.net(tgt.transpose(0,1)).squeeze(1)
+        # debug
+        print()
+        return self.net(tgt).squeeze(1)
 
 # [batch_size, seq_len, f_size] -> [batch_size]
 class TemporalAggregation(nn.Module):

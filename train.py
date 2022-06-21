@@ -2,7 +2,6 @@
 personal implementation of training procedure for Hierarchical Multi-Scale Gaussian Transformer
 dzy 2022.5.31
 '''
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -41,7 +40,7 @@ if __name__ == "__main__":
         enddate=config['TestEnd'],
         datefile=datefile,
         window_size=WINDOW_SIZE,
-        data=csi500[1],
+        data=csi500[2],
         type="train"
     )
 
@@ -50,7 +49,7 @@ if __name__ == "__main__":
         enddate=config['ValEnd'],
         datefile=datefile,
         window_size=WINDOW_SIZE,
-        data=csi500[1],
+        data=csi500[2],
         type="train"
     )
 
@@ -60,7 +59,7 @@ if __name__ == "__main__":
         enddate=config['TrainEnd'],
         datefile=datefile,
         window_size=WINDOW_SIZE,
-        data=csi500[1],
+        data=csi500[2],
         type="train"
         )
 
@@ -85,31 +84,36 @@ if __name__ == "__main__":
         device=device
     )
 
-    # Orthogonal Regularization for Multi-Head Self-Attention Mechanism
-    #  weight: [d_v * n_heads, f_size] -> [n_heads, d_v*f_size]
-    m = []
-    w_vhs = mlmodel.encoder.w_vhs
-    fnorm = nn.MSELoss(reduction='mean')
-    l_p = 0
-    for w_vh in w_vhs:
-        A = w_vh.reshape(N_HEADS,-1)
-        A = A/torch.norm(A)
-        l_p += fnorm(A,torch.ones(A.size())).item()
-
     # Basic loss fomula: loss = l_c_e + \gamma * l_p
     # Gamma is a hyper_parameter            
     # According to the paper, the model uses BCELoss
-    loss_func = nn.BCELoss()
+    loss_func = nn.BCEWithLogitsLoss()
     optim = optim.Adam(mlmodel.parameters(),lr=LEARNING_RATE)
 
 
     for i in range (EPOCHS):
         for step,[data,label] in enumerate(tqdm(dataloader_train)):
+
+            # Orthogonal Regularization for Multi-Head Self-Attention Mechanism
+            #  weight: [d_v * n_heads, f_size] -> [n_heads, d_v*f_size]
+            m = []
+            w_vhs = mlmodel.encoder.w_vhs
+            fnorm = nn.MSELoss(reduction='mean')
+            l_p = 0
+            for w_vh in w_vhs:
+                A = w_vh.reshape(N_HEADS,-1)
+                A = A/torch.norm(A)
+                A = torch.matmul(A,A.T)
+                l_p += fnorm(A,torch.ones(A.size())).item()
+            if 0 in label: continue
+
             outputs = mlmodel(data)
-            loss = loss_func(outputs,label)
+            loss = loss_func(outputs,label)+GAMA*l_p
             optim.zero_grad()
             loss.backward()
             optim.step()
 
-            if step % 20 == 0: print("train time：{}, Loss: {}".format(step, loss.item()))
+            if step % 50 == 0:
+                print(outputs,label) 
+                print("train time: {}, Loss: {}".format(step, loss.item()))
 

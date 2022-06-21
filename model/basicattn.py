@@ -37,34 +37,42 @@ class PoswiseFeedForwardNet(nn.Module):
 # f_size is the number features
 # basic postional encoding
 class PositionalEncoding(nn.Module):
-    def __init__(self, seq_len, device, max_len=5000):
+    def __init__(self, f_size, device, max_len=5000):
         super(PositionalEncoding, self).__init__()
-        # [max_len,seq_len]
-        pe = torch.zeros(max_len, seq_len)
+        # [max_len,f_size]
+        check = (f_size % 2 != 0)
+        if check: f_size+=1
+        pe = torch.zeros(max_len, f_size)
         # [max_len] -> [max_len,1]
         position = torch.arange(0, max_len, dtype=torch.float,device=device).unsqueeze(1)
-        # [ceil(seq_len/2)]
-        div_term = torch.exp(torch.arange(0, seq_len, 2,device=device).float() * (-math.log(10000.0) / seq_len))
-        # [max_len,seq_len]
+        # [ceil(f_size/2)]
+        div_term = torch.exp(torch.arange(0, f_size, 2,device=device).float() * (-math.log(10000.0) / f_size))
 
+        # [max_len,seq_len]
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        
-        # [1,max_len,seq_len] -> [max_len,1,seq_len]
-        pe = pe.unsqueeze(0).permute(1, 2, 0)
+
+        if check: pe = pe[:,:-1]
+
+        # [1,max_len,f_size] -> [max_len,1,f_size]
+        pe = pe.unsqueeze(0).transpose(0,1)
+
         # means this part will not be updated when training
         self.register_buffer('pe', pe)
 
     def forward(self, x):
         # x: [batch_size, seq_len, f_size]
-        pos = self.pe[:x.size(0), :].repeat(1,1,x.size(2))
+        x = x.transpose(0,1)
+        pos = self.pe[:x.size(0),:]
+        
         x = x + pos
-        return x
+        return x.transpose(0,1)
 
 # pad mask function
 # for this structure, pad is not neccessary because all the sequences have a same length
 
 # seq mask function
+# in this model, tgt_len = seq_len
 def get_attn_subsequence_mask(seq):
     attn_shape = [seq.size(0), seq.size(1), seq.size(1)]
     # attn_shape: [batch_size, tgt_len, tgt_len]
@@ -167,10 +175,10 @@ class MultiHeadAttention(nn.Module):
         K = self.W_K(input_K).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
         V = self.W_V(input_V).view(batch_size, -1, self.n_heads, self.d_v).transpose(1, 2)
 
-        attn_mask = attn_mask.unsqueeze(1).repeat(1, self.n_heads, 1, 1)
-
+        attn_mask = attn_mask.unsqueeze(1).repeat(1, self.n_heads, 1, 1) 
         context = self.attn(Q, K, V, attn_mask)
         context = context.transpose(1, 2).reshape(batch_size, -1, self.n_heads * self.d_v)
-
+        
         output = self.fc(context)  # [batch_size, len_q, f_size]
+
         return nn.LayerNorm(self.f_size).to(self.device)(output + residual)

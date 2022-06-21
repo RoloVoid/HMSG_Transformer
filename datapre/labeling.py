@@ -35,12 +35,14 @@ for target in m:
         # generate target group
         labeled = data.copy()
 
-        # normalize
-        labeled['preclose'] = data['close'].shift(w-1)
+        # normalize shift length is fixed to 15
+        labeled['preclose'] = data['close'].shift(15)
+        labeled['prevolume'] = data['volume'].shift(15)
         labeled['open'] = (data['open']-labeled['preclose'])/labeled['preclose']
         labeled['high'] = (data['high']-labeled['preclose'])/labeled['preclose']
         labeled['low'] = (data['low']-labeled['preclose'])/labeled['preclose']
         labeled['close'] = (data['close']-labeled['preclose'])/labeled['preclose']
+        labeled['volume'] = (data['volume']-labeled['prevolume'])/labeled['prevolume']
 
         # labeling
         labeled['label'] = 0
@@ -48,6 +50,6 @@ for target in m:
         labeled['label'][labeled['close']>beta_rise] = 1
         labeled['label'][labeled['close']<beta_fall] = -1
 
-        labeled = labeled.drop(['preclose','time','date'],axis=1)
+        labeled = labeled.drop(['preclose','time','date','prevolume'],axis=1)
         labeled[:w-1] = -123321
         labeled.to_csv(datasetdir+"/"+target,index=False,header=None)
