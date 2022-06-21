@@ -1,1 +1,1 @@
-# A personal implementation for Hierarchical Gaussian Transformer
+# A personal implementation for Hierarchical Multi-Scale Gaussian Transformer
